@@ -1,0 +1,7 @@
+bin/
+obj/
+.vs/
+installer/Output/
+core/sing-box.exe
+core/*.dll
+*.user

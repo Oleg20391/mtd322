@@ -1,0 +1,52 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Download sing-box 1.12.x
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $h = @{ Authorization = "Bearer $env:GH_TOKEN" }
+          $rels = Invoke-RestMethod "https://api.github.com/repos/SagerNet/sing-box/releases?per_page=100" -Headers $h
+          $r = $rels | Where-Object { -not $_.prerelease -and $_.tag_name -like 'v1.12.*' } | Select-Object -First 1
+          $a = $r.assets | Where-Object { $_.name -like '*windows-amd64.zip' -and $_.name -notlike '*legacy*' } | Select-Object -First 1
+          Write-Host "sing-box: $($r.tag_name) / $($a.name)"
+          Invoke-WebRequest $a.browser_download_url -OutFile sb.zip
+          Expand-Archive sb.zip -DestinationPath sb
+          New-Item -ItemType Directory -Force core | Out-Null
+          Copy-Item (Get-ChildItem sb -Recurse -Filter sing-box.exe | Select-Object -First 1).FullName core\sing-box.exe
+          Get-ChildItem sb -Recurse -Filter wintun.dll | Select-Object -First 1 | ForEach-Object { Copy-Item $_.FullName core\wintun.dll }
+
+      - name: Publish app
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:Version=$ver
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          choco install innosetup -y --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$ver" installer\MtdVpn.iss
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/Output/MtdVpn-Setup.exe
