@@ -23,9 +23,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $h = @{ Authorization = "Bearer $env:GH_TOKEN" }
-          $rels = Invoke-RestMethod "https://api.github.com/repos/SagerNet/sing-box/releases?per_page=100" -Headers $h
-          $r = $rels | Where-Object { -not $_.prerelease -and $_.tag_name -like 'v1.12.*' } | Select-Object -First 1
+          # у sing-box очень много предварительных релизов, поэтому листаем страницы, пока не найдём стабильный 1.12.x
+          $r = $null
+          foreach ($page in 1..15) {
+            $rels = Invoke-RestMethod "https://api.github.com/repos/SagerNet/sing-box/releases?per_page=100&page=$page" -Headers $h
+            if (-not $rels -or $rels.Count -eq 0) { break }
+            $r = $rels | Where-Object { $_.tag_name -like 'v1.12.*' -and -not $_.prerelease -and -not $_.draft } | Select-Object -First 1
+            if ($r) { break }
+          }
+          if (-not $r) { throw "Не найден стабильный релиз sing-box 1.12.x" }
           $a = $r.assets | Where-Object { $_.name -like '*windows-amd64.zip' -and $_.name -notlike '*legacy*' } | Select-Object -First 1
+          if (-not $a) { throw "В релизе $($r.tag_name) нет windows-amd64.zip" }
           Write-Host "sing-box: $($r.tag_name) / $($a.name)"
           Invoke-WebRequest $a.browser_download_url -OutFile sb.zip
           Expand-Archive sb.zip -DestinationPath sb
