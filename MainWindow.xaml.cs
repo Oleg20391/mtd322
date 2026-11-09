@@ -18,7 +18,8 @@ public partial class MainWindow : Window
     readonly SingBox _core = new();
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(5) };
     System.Windows.Forms.NotifyIcon? _tray;
-    bool _busy, _loading, _exit;
+    readonly DispatcherTimer _updTimer = new() { Interval = TimeSpan.FromHours(3) };
+    bool _busy, _loading, _exit, _updating;
 
     public MainWindow()
     {
@@ -26,6 +27,30 @@ public partial class MainWindow : Window
         _timer.Tick += async (_, _) => await TickAsync();
         SetupTray();
         ShowCorrectPanel();
+
+        Title = $"MTD VPN {Updater.Current.ToString(3)}";
+        _updTimer.Tick += async (_, _) => await CheckUpdateAsync();
+        _updTimer.Start();
+        Loaded += async (_, _) => { await Task.Delay(8000); await CheckUpdateAsync(); };
+    }
+
+    // ---------- Автообновление ----------
+    async Task CheckUpdateAsync()
+    {
+        // не трогаем работающее соединение: обновляемся только когда VPN выключен
+        if (_updating || _busy || Switch.IsChecked == true) return;
+        _updating = true;
+        try
+        {
+            var upd = await Updater.DownloadIfNewAsync(t => TxtServer.Text = t);
+            if (upd == null) return;
+            if (Switch.IsChecked == true || _busy) { TxtServer.Text = ""; return; }   // успели подключиться, обновимся позже
+            SetStatus($"Обновляюсь до {upd.Value.Version}…");
+            Updater.RunInstaller(upd.Value.Path);
+            ExitApp();
+        }
+        catch { TxtServer.Text = ""; }
+        finally { _updating = false; }
     }
 
     // ---------- Экраны ----------
@@ -60,9 +85,10 @@ public partial class MainWindow : Window
     void FillMode()
     {
         _loading = true;
-        CmbMode.SelectedIndex = Math.Clamp(_store.Mode, 0, 2);
+        CmbMode.SelectedIndex = Math.Clamp(_store.Mode, 0, 3);
         LstApps.ItemsSource = _store.Apps.ToList();
-        AppsPanel.Visibility = _store.Mode == 0 ? Visibility.Collapsed : Visibility.Visible;
+        AppsPanel.Visibility = _store.Mode is 1 or 2 ? Visibility.Visible : Visibility.Collapsed;
+        TxtHint.Visibility = _store.Mode == 3 ? Visibility.Visible : Visibility.Collapsed;
         _loading = false;
     }
 
@@ -243,6 +269,7 @@ public partial class MainWindow : Window
             if (_store.Mode == 1 && _store.Apps.Count == 0)
                 throw new Exception("Выбран режим «только выбранные программы», но список пуст. Добавьте программу в разделе «Туннелирование».");
             await _core.StartAsync(ConfigBuilder.Build(servers, _store.Server, _store.Mode, _store.Apps));
+            if (_store.Mode == 3) SystemProxy.Set();
 
             Switch.IsChecked = true;
             SetStatus("Подключено", ok: true);
@@ -251,6 +278,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            SystemProxy.Clear(true);
             Switch.IsChecked = false;
             SetStatus("Не удалось подключиться");
             TxtServer.Text = "";
@@ -264,6 +292,7 @@ public partial class MainWindow : Window
         _busy = true; Switch.IsEnabled = false;
         _timer.Stop();
         await Task.Run(() => _core.Stop());
+        SystemProxy.Clear(true);
         Switch.IsChecked = false;
         SetStatus("Отключено"); TxtServer.Text = "";
         _busy = false; Switch.IsEnabled = true;
@@ -281,7 +310,7 @@ public partial class MainWindow : Window
         if (_busy || Switch.IsChecked != true) return;
         if (!_core.IsRunning)
         {
-            _timer.Stop(); Switch.IsChecked = false;
+            _timer.Stop(); SystemProxy.Clear(true); Switch.IsChecked = false;
             SetStatus("Соединение прервано"); TxtServer.Text = "";
             return;
         }
@@ -328,6 +357,7 @@ public partial class MainWindow : Window
     {
         _exit = true;
         _core.Stop();
+        SystemProxy.Clear(true);
         _tray?.Dispose();
         Application.Current.Shutdown();
     }

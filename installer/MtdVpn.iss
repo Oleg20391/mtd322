@@ -33,21 +33,29 @@ Name: "autostart"; Description: "Запускать вместе с Windows"
 
 [Files]
 Source: "{#Publish}\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: ignoreversion recursesubdirs
+Source: "register-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: desktopicon
 
 [Run]
-; автозапуск через планировщик: программа требует права администратора, так окно UAC при входе не появляется
-Filename: "schtasks.exe"; Parameters: "/Create /TN MtdVpn /TR ""\""{app}\{#MyAppExe}\"""" /SC ONLOGON /RL HIGHEST /F"; Flags: runhidden; Tasks: autostart
+; автозапуск через планировщик для группы Users: окно UAC при входе не появляется, а установка от SYSTEM (MeshCentral) работает
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\register-task.ps1"" -Exe ""{app}\{#MyAppExe}"""; Flags: runhidden; Tasks: autostart
 Filename: "{app}\{#MyAppExe}"; Description: "Запустить {#MyAppName}"; Flags: nowait postinstall skipifsilent
+; после автообновления из самой программы запускаем её снова
+Filename: "{app}\{#MyAppExe}"; Flags: nowait; Check: IsUpdateRun
 
 [UninstallRun]
 Filename: "taskkill.exe"; Parameters: "/F /IM MtdVpn.exe /IM sing-box.exe"; Flags: runhidden; RunOnceId: "KillApp"
 Filename: "schtasks.exe"; Parameters: "/Delete /TN MtdVpn /F"; Flags: runhidden; RunOnceId: "DelTask"
 
 [Code]
+function IsUpdateRun: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATED|0}') = '1';
+end;
+
 // перед установкой/обновлением закрываем программу и ядро, иначе файлы заняты
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var R: Integer;

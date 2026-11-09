@@ -10,12 +10,27 @@ public static class Subscription
 {
     static readonly string[] Supported = { "vless", "hysteria2", "hysteria", "vmess", "trojan", "shadowsocks", "tuic" };
 
+    static async Task<string> GetTextAsync(string url)
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            // По User-Agent Remnawave отдаёт готовый sing-box конфиг
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("sing-box/1.12.0");
+            return await http.GetStringAsync(url);
+        }
+        catch (HttpRequestException)
+        {
+            // обычный DNS не справился (например, мобильный оператор) — пробуем через DoH
+            using var http = Doh.CreateClient(TimeSpan.FromSeconds(25));
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("sing-box/1.12.0");
+            return await http.GetStringAsync(url);
+        }
+    }
+
     public static async Task RefreshAsync(Profile p)
     {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-        // По User-Agent Remnawave отдаёт готовый sing-box конфиг
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("sing-box/1.12.0");
-        string text = await http.GetStringAsync(p.Url);
+        string text = await GetTextAsync(p.Url);
 
         JsonArray? all;
         try { all = JsonNode.Parse(text)?["outbounds"] as JsonArray; }

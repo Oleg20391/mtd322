@@ -105,7 +105,10 @@
               <ComboBoxItem Content="Весь трафик через VPN"/>
               <ComboBoxItem Content="Через VPN только выбранные программы"/>
               <ComboBoxItem Content="Все программы, кроме выбранных"/>
+              <ComboBoxItem Content="Только браузер: системный прокси (без TUN, игры не затрагиваются)"/>
             </ComboBox>
+            <TextBlock x:Name="TxtHint" Visibility="Collapsed" TextWrapping="Wrap" Foreground="#9A9AB0" FontSize="12" Margin="0,8,0,0"
+                       Text="Через VPN идут браузеры и программы, которые используют системный прокси (Chrome, Edge, Claude). Игры, Battle.net и Discord не затрагиваются. Для Telegram: Настройки → Продвинутые → Тип соединения → SOCKS5, адрес 127.0.0.1, порт 10808."/>
             <StackPanel x:Name="AppsPanel" Visibility="Collapsed" Margin="0,8,0,0">
               <ListBox x:Name="LstApps" Height="90" Background="#1F1F2B" Foreground="White" BorderBrush="#3A3A4A"/>
               <Button Content="Выбрать из запущенных программ" Style="{StaticResource Btn}" Margin="0,8,0,0" Click="BtnPickRunning_Click"/>

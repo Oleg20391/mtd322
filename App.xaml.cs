@@ -12,12 +12,14 @@ public partial class App : Application
         _mutex = new Mutex(true, "MtdVpn.SingleInstance", out bool isNew);
         if (!isNew) { Shutdown(); return; }
         SingBox.KillAll(); // убрать "осиротевшее" ядро после прошлого сбоя
+        SystemProxy.Clear(true); // и прокси, оставшийся после сбоя
         base.OnStartup(e);
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
         SingBox.KillAll();
+        SystemProxy.Clear(true);
         base.OnExit(e);
     }
 }

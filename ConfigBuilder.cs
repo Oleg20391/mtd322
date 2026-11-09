@@ -45,18 +45,20 @@ public static class ConfigBuilder
             var host = o["server"]?.GetValue<string>();
             if (!string.IsNullOrEmpty(host) && !IPAddress.TryParse(host, out _))
             {
+                IPAddress? ip = null;
                 try
                 {
                     var addrs = await Dns.GetHostAddressesAsync(host).WaitAsync(TimeSpan.FromSeconds(6));
-                    var ip = addrs.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
-                    if (ip != null)
-                    {
-                        if (o["tls"] is JsonObject tls && tls["enabled"]?.GetValue<bool>() == true && tls["server_name"] == null)
-                            tls["server_name"] = host;   // SNI не должен потеряться
-                        o["server"] = ip.ToString();
-                    }
+                    ip = addrs.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
                 }
-                catch { /* не вышло — оставляем домен */ }
+                catch { }
+                ip ??= await Doh.ResolveAsync(host);   // запасной вариант: DNS-over-HTTPS
+                if (ip != null)
+                {
+                    if (o["tls"] is JsonObject tls && tls["enabled"]?.GetValue<bool>() == true && tls["server_name"] == null)
+                        tls["server_name"] = host;   // SNI не должен потеряться
+                    o["server"] = ip.ToString();
+                }
             }
             result.Add(o);
         }
@@ -98,7 +100,8 @@ public static class ConfigBuilder
             new JsonObject { ["protocol"] = "dns", ["action"] = "hijack-dns" },
             new JsonObject { ["ip_is_private"] = true, ["outbound"] = "direct" }
         };
-        bool split = mode != 0 && apps.Count > 0;
+        bool proxyMode = mode == 3;   // режим без TUN: системный прокси
+        bool split = (mode == 1 || mode == 2) && apps.Count > 0;
         if (split)
             rules.Add(new JsonObject
             {
@@ -111,6 +114,8 @@ public static class ConfigBuilder
         // DNS: программы, которые идут напрямую, получают DNS своей обычной сети, а не через VPN
         var dnsRules = new JsonArray();
         string dnsFinal = "dns-remote";
+        if (proxyMode)
+            dnsRules.Add(new JsonObject { ["domain_suffix"] = new JsonArray("bot.nu", "ru", "xn--p1ai"), ["action"] = "route", ["server"] = "dns-direct" });
         if (split)
         {
             dnsRules.Add(new JsonObject
@@ -133,11 +138,9 @@ public static class ConfigBuilder
         };
         if (dnsRules.Count > 0) dnsSection["rules"] = dnsRules;
 
-        var cfg = new JsonObject
-        {
-            ["log"] = new JsonObject { ["level"] = "info", ["timestamp"] = true },
-            ["dns"] = dnsSection,
-            ["inbounds"] = new JsonArray
+        JsonArray inbounds = proxyMode
+            ? new JsonArray { new JsonObject { ["type"] = "mixed", ["tag"] = "mixed-in", ["listen"] = "127.0.0.1", ["listen_port"] = 10808 } }
+            : new JsonArray
             {
                 new JsonObject
                 {
@@ -148,7 +151,13 @@ public static class ConfigBuilder
                     ["route_exclude_address"] = new JsonArray(
                         "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/4", "255.255.255.255/32")
                 }
-            },
+            };
+
+        var cfg = new JsonObject
+        {
+            ["log"] = new JsonObject { ["level"] = "info", ["timestamp"] = true },
+            ["dns"] = dnsSection,
+            ["inbounds"] = inbounds,
             ["outbounds"] = outbounds,
             ["route"] = new JsonObject
             {
